@@ -1,6 +1,45 @@
+# Python
 __pycache__/
-.env
+*.pyc
+*.pyo
+.venv/
 venv/
+
+# Environment
+.env
+.env.local
+.env.example
+.env.dev
+.env.prod
+
+# OS
 .DS_Store
+
+# Data (large files)
 data/raw/
+data/processed/
+
+# Vector store (large files)
 vector_store/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Logs and cache
+*.log
+logs/
+cache/
+
+# Database
+*.sqlite3
+*.db
+
+# Node (if any)
+node_modules/
+
+# Reports output (keep .gitkeep)
+reports/*.json
+reports/*.csv
+data
+data/

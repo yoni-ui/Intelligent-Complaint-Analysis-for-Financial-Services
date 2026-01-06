@@ -1,6 +1,20 @@
-pandas
-numpy
-scikit-learn
-sentence-transformers
-faiss-cpu
-openai
+# Task 1: EDA & Preprocessing
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Task 2: Embeddings & Vector Store
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+langchain-text-splitters>=0.0.1
+
+# Task 3: LLM (Ollama client)
+requests>=2.31.0
+
+# Task 4: UI
+gradio>=4.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.65.0
