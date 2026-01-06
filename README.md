@@ -1,145 +1,87 @@
-# 🏦 Intelligent Complaint Analysis for Financial Services
+# Intelligent Complaint Analysis for Financial Services
 
-A RAG-powered chatbot for analyzing CFPB customer complaints, built for CrediTrust Financial.
+A compact, local RAG (Retrieval-Augmented Generation) system to analyze CFPB customer complaints. It pairs a FAISS vector store of complaint text chunks with a local LLM (via Ollama) to provide grounded, explainable answers about complaint trends and issues.
 
-## Overview
+## Highlights
 
-This project implements a Retrieval-Augmented Generation (RAG) system that enables intelligent analysis of customer complaints from the Consumer Financial Protection Bureau (CFPB) database. The system allows users to ask natural language questions about complaint patterns, issues, and trends across different financial products.
+- Fast semantic search over complaint chunks using FAISS
+- Retrieval + generation pipeline for grounded answers
+- Filter by product category (credit cards, loans, accounts, transfers)
+- Local LLM inference via Ollama for privacy and offline use
 
-## Features
-
-- **Semantic Search**: Query 1.6M+ complaint chunks using FAISS vector similarity
-- **RAG Pipeline**: Combines retrieval with Mistral-7B LLM for grounded answers
-- **Product Filtering**: Filter by credit cards, personal loans, savings accounts, or money transfers
-- **Interactive UI**: Gradio-based chat interface with source document display
-- **Local LLM**: Uses Ollama for privacy-preserving, offline inference
-
-## Project Structure
+## Repository Layout
 
 ```
-├── app.py                      # Gradio UI application
-├── src/
-│   ├── preprocess.py           # Data preprocessing pipeline
-│   ├── index_vector_store.py   # FAISS indexing script
-│   ├── rag.py                  # RAG pipeline (retriever + generator)
-│   ├── evaluate.py             # Qualitative evaluation script
-│   └── llm/
-│       └── local_ollama.py     # Ollama LLM client
-├── notebooks/
-│   └── 01_eda_preprocessing.ipynb  # EDA notebook
-├── data/
-│   ├── raw/                    # Raw CFPB data (gitignored)
-│   └── filtered_complaints.csv # Preprocessed data
-├── vector_store/               # FAISS index + metadata (gitignored)
-└── requirements.txt
+app.py                     # Gradio UI application
+data/                      # raw/ (input) and processed/ (preprocessed)
+notebooks/                 # EDA and experiments
+src/                       # Core modules: preprocessing, indexing, RAG, evaluation
+vector_store/              # Persisted FAISS index (gitignored)
+requirements.txt
 ```
 
 ## Quick Start
 
-### Prerequisites
+Prerequisites
 
 - Python 3.10+
-- [Ollama](https://ollama.ai/) installed and running
-- ~6GB disk space for raw data
-- ~2.5GB for FAISS index
+- Ollama running locally (for the generator LLM)
 
-### Installation
+Install and run
 
 ```bash
-# Clone repository
-git clone https://github.com/your-repo/Intelligent-Complaint-Analysis-for-Financial-Services.git
-cd Intelligent-Complaint-Analysis-for-Financial-Services
-
-# Create virtual environment
+# Create and activate a virtualenv
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+.venv\Scripts\activate    # Windows
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Pull Mistral model for Ollama
+# (Optional) Pull the local LLM model for Ollama
+#(run if using Ollama and you want Mistral)
 ollama pull mistral:7b-instruct
-```
 
-### Data Setup
-
-1. Download CFPB complaints data from [CFPB Consumer Complaint Database](https://www.consumerfinance.gov/data-research/consumer-complaints/)
-2. Place `complaints.csv` in `data/raw/`
-3. Run preprocessing:
-
-```bash
+# Preprocess raw complaints (place complaints.csv into data/raw/ first)
 python src/preprocess.py
-```
 
-### Build Vector Index
-
-```bash
+# Build the FAISS index
 python src/index_vector_store.py
-```
 
-This will:
-- Chunk 471k complaints into 1.6M text segments
-- Generate embeddings using `paraphrase-MiniLM-L3-v2`
-- Build and persist FAISS index (~23 minutes)
-
-### Run the Application
-
-```bash
+# Start the Gradio app
 python app.py
 ```
 
-Open http://127.0.0.1:7860 in your browser.
+Open http://127.0.0.1:7860 to use the chat UI.
 
-## Technical Details
+## Data & Indexing Notes
 
-### Data Pipeline
+- Expected workflow: download CFPB `complaints.csv` → `data/raw/` → `python src/preprocess.py` → `python src/index_vector_store.py`.
+- Preprocessing filters target product categories and chunks complaint texts (default chunk size and overlap are defined in `src/index_vector_store.py`).
+- Embeddings use `sentence-transformers/paraphrase-MiniLM-L3-v2` by default.
 
-| Stage | Input | Output |
-|-------|-------|--------|
-| Raw Data | 6GB complaints.csv | 4.7M rows |
-| Filtering | Target 4 products | 471k complaints |
-| Chunking | 500 chars, 100 overlap | 1.6M chunks |
-| Embedding | paraphrase-MiniLM-L3-v2 | 384-dim vectors |
+## RAG Pipeline
 
-### Product Categories
+- Retriever: FAISS L2 search (top-k retrieval)
+- Generator: LLM called via `src/llm/local_ollama.py` (default model `mistral:7b-instruct`)
+- The system returns answers with supporting complaint excerpts for traceability.
 
-- `credit_card` - Credit cards and prepaid cards
-- `personal_loan` - Consumer loans, payday loans
-- `savings_account` - Bank accounts, checking/savings
-- `money_transfer` - Money transfers, virtual currency
+## Common Commands
 
-### RAG Architecture
-
-1. **Retriever**: FAISS L2 similarity search (top-k=5)
-2. **Prompt**: Structured template with complaint excerpts
-3. **Generator**: Mistral-7B-Instruct via Ollama
-
-## Evaluation
-
-Run qualitative evaluation with 10 test questions:
-
-```bash
-python -m src.evaluate
-```
+- Preprocess data: `python src/preprocess.py`
+- Build index: `python src/index_vector_store.py`
+- Run evaluation: `python -m src.evaluate`
+- Start UI: `python app.py`
 
 ## Configuration
 
-Key parameters in `src/index_vector_store.py`:
-- `CHUNK_SIZE = 500` - Characters per chunk
-- `CHUNK_OVERLAP = 100` - Overlap between chunks
-- `EMBEDDING_MODEL = 'sentence-transformers/paraphrase-MiniLM-L3-v2'`
+Key parameters live in `src/index_vector_store.py` and `src/rag.py` (chunk size, overlap, embedding model, and `DEFAULT_TOP_K`). Adjust them to trade off index size, retrieval granularity, and performance.
 
-Key parameters in `src/rag.py`:
-- `DEFAULT_TOP_K = 5` - Number of chunks to retrieve
-- `llm_model = "mistral:7b-instruct"` - Ollama model
-
-## License
+## License & Acknowledgments
 
 MIT License
 
-## Acknowledgments
+Thanks to CFPB (data), Sentence-Transformers (embeddings), Ollama (local LLMs), and FAISS (vector search).
 
-- CFPB for the public complaints database
-- Sentence-Transformers for embedding models
-- Ollama for local LLM inference
-- FAISS for efficient similarity search
+---
+
+If you'd like a shorter README, a version with expanded developer instructions, or a GitHub-ready summary for the project homepage, tell me which flavor and I will update it.
