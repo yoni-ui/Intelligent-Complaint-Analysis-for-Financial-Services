@@ -21,18 +21,13 @@ from typing import List, Dict, Any, Optional, Tuple
 from sentence_transformers import SentenceTransformer
 
 from src.llm.local_ollama import OllamaClient, get_llm_client
-
-# Paths (use absolute path relative to this file's location)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VECTOR_STORE_PATH = PROJECT_ROOT / 'vector_store'
-FAISS_INDEX_PATH = VECTOR_STORE_PATH / 'faiss_index.bin'
-METADATA_PATH = VECTOR_STORE_PATH / 'metadata.pkl'
-
-# Embedding model (must match indexing)
-EMBEDDING_MODEL = 'sentence-transformers/paraphrase-MiniLM-L3-v2'
-
-# Default retrieval parameters
-DEFAULT_TOP_K = 5
+from src.config import (
+    FAISS_INDEX_PATH, METADATA_PATH, EMBEDDING_MODEL, DEFAULT_TOP_K,
+    MAX_TOP_K, LLM_TEMPERATURE, LLM_MAX_TOKENS, LLM_TIMEOUT
+)
+from src.logger import logger
+from src.cache import query_cache
+from src.utils import retry_on_failure, format_error_message
 
 # Prompt template
 PROMPT_TEMPLATE = """You are a financial analyst assistant for CrediTrust Financial. Your task is to answer questions about customer complaints based on real complaint data.
@@ -62,23 +57,34 @@ class Retriever:
         embedding_model: str = EMBEDDING_MODEL
     ):
         """Initialize retriever with FAISS index and embedding model."""
-        self.index = self._load_index(index_path)
-        self.metadata = self._load_metadata(metadata_path)
-        self.model = SentenceTransformer(embedding_model)
+        logger.info(f"Initializing Retriever with model: {embedding_model}")
+        try:
+            self.index = self._load_index(index_path)
+            self.metadata = self._load_metadata(metadata_path)
+            self.model = SentenceTransformer(embedding_model)
+            logger.info(f"Retriever initialized successfully. Index size: {self.index.ntotal}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Retriever: {e}")
+            raise
         
+    @retry_on_failure(max_retries=3)
     def _load_index(self, path: Path) -> faiss.Index:
         """Load FAISS index from disk."""
         if not path.exists():
             raise FileNotFoundError(f"FAISS index not found at {path}. Run index_vector_store.py first.")
+        logger.debug(f"Loading FAISS index from {path}")
         return faiss.read_index(str(path))
     
+    @retry_on_failure(max_retries=3)
     def _load_metadata(self, path: Path) -> List[Dict]:
         """Load metadata from disk."""
         if not path.exists():
             raise FileNotFoundError(f"Metadata not found at {path}. Run index_vector_store.py first.")
+        logger.debug(f"Loading metadata from {path}")
         with open(path, 'rb') as f:
             return pickle.load(f)
     
+    @retry_on_failure(max_retries=2)
     def retrieve(
         self,
         query: str,
@@ -89,44 +95,55 @@ class Retriever:
         
         Args:
             query: User's question
-            top_k: Number of results to return
+            top_k: Number of results to return (clamped to MAX_TOP_K)
             product_filter: Optional product category to filter by
             
         Returns:
             List of chunk dictionaries with text, metadata, and distance
         """
-        # Embed query
-        query_embedding = self.model.encode([query], convert_to_numpy=True).astype('float32')
+        # Clamp top_k to prevent excessive retrieval
+        top_k = min(top_k, MAX_TOP_K)
         
-        # Search (retrieve more if filtering)
-        search_k = top_k * 3 if product_filter else top_k
-        distances, indices = self.index.search(query_embedding, search_k)
+        logger.debug(f"Retrieving top {top_k} chunks for query: {query[:50]}...")
         
-        # Build results
-        results = []
-        for dist, idx in zip(distances[0], indices[0]):
-            if idx < 0 or idx >= len(self.metadata):
-                continue
+        try:
+            # Embed query
+            query_embedding = self.model.encode([query], convert_to_numpy=True).astype('float32')
+            
+            # Search (retrieve more if filtering)
+            search_k = top_k * 3 if product_filter else top_k
+            distances, indices = self.index.search(query_embedding, search_k)
+            
+            # Build results
+            results = []
+            for dist, idx in zip(distances[0], indices[0]):
+                if idx < 0 or idx >= len(self.metadata):
+                    continue
+                    
+                meta = self.metadata[idx]
                 
-            meta = self.metadata[idx]
+                # Apply product filter if specified
+                if product_filter and meta.get('product') != product_filter:
+                    continue
+                
+                results.append({
+                    'text': meta['text'],
+                    'complaint_id': meta['complaint_id'],
+                    'product': meta['product'],
+                    'issue': meta.get('issue', ''),
+                    'company': meta.get('company', ''),
+                    'distance': float(dist)
+                })
+                
+                if len(results) >= top_k:
+                    break
             
-            # Apply product filter if specified
-            if product_filter and meta.get('product') != product_filter:
-                continue
+            logger.info(f"Retrieved {len(results)} chunks for query")
+            return results
             
-            results.append({
-                'text': meta['text'],
-                'complaint_id': meta['complaint_id'],
-                'product': meta['product'],
-                'issue': meta.get('issue', ''),
-                'company': meta.get('company', ''),
-                'distance': float(dist)
-            })
-            
-            if len(results) >= top_k:
-                break
-        
-        return results
+        except Exception as e:
+            logger.error(f"Error during retrieval: {e}")
+            raise
 
 
 class RAGPipeline:
@@ -134,18 +151,20 @@ class RAGPipeline:
     
     def __init__(
         self,
-        llm_model: str = "mistral:7b-instruct",
+        llm_model: str = None,
         top_k: int = DEFAULT_TOP_K
     ):
         """Initialize RAG pipeline.
         
         Args:
-            llm_model: Ollama model name
+            llm_model: Ollama model name (uses config default if None)
             top_k: Default number of chunks to retrieve
         """
+        logger.info("Initializing RAG Pipeline...")
         self.retriever = Retriever()
         self.llm = get_llm_client(model=llm_model)
-        self.top_k = top_k
+        self.top_k = min(top_k, MAX_TOP_K)
+        logger.info(f"RAG Pipeline initialized with model: {self.llm.model}, top_k: {self.top_k}")
         
     def _build_context(self, chunks: List[Dict]) -> str:
         """Build context string from retrieved chunks."""
@@ -166,7 +185,8 @@ class RAGPipeline:
         question: str,
         product_filter: Optional[str] = None,
         top_k: Optional[int] = None,
-        temperature: float = 0.7
+        temperature: float = None,
+        use_cache: bool = True
     ) -> Tuple[str, List[Dict]]:
         """Answer a question using RAG.
         
@@ -174,31 +194,94 @@ class RAGPipeline:
             question: User's question
             product_filter: Optional product category filter
             top_k: Number of chunks to retrieve (overrides default)
-            temperature: LLM temperature
+            temperature: LLM temperature (uses config default if None)
+            use_cache: Whether to use cache
             
         Returns:
             Tuple of (answer_text, source_chunks)
         """
-        k = top_k or self.top_k
+        # Check cache first
+        if use_cache:
+            cache_key = f"{question}|{product_filter}|{top_k or self.top_k}"
+            cached_result = query_cache.get(cache_key)
+            if cached_result:
+                logger.info("Returning cached result")
+                return cached_result['answer'], cached_result['sources']
         
-        # Retrieve relevant chunks
-        chunks = self.retriever.retrieve(
-            query=question,
-            top_k=k,
-            product_filter=product_filter
-        )
+        try:
+            k = min(top_k or self.top_k, MAX_TOP_K)
+            temp = temperature if temperature is not None else LLM_TEMPERATURE
+            
+            logger.info(f"Processing query: {question[:100]}...")
+            
+            # Retrieve relevant chunks
+            chunks = self.retriever.retrieve(
+                query=question,
+                top_k=k,
+                product_filter=product_filter
+            )
+            
+            if not chunks:
+                logger.warning("No relevant chunks found for query")
+                return "No relevant complaints found for your query.", []
+            
+            # Build prompt
+            context = self._build_context(chunks)
+            prompt = self._build_prompt(question, context)
+            
+            # Generate answer with retry
+            try:
+                answer = self.llm.generate(
+                    prompt,
+                    temperature=temp,
+                    max_tokens=LLM_MAX_TOKENS
+                )
+                answer = answer.strip()
+            except Exception as e:
+                logger.error(f"LLM generation failed: {e}")
+                # Fallback: return summary of retrieved chunks
+                answer = self._fallback_answer(chunks)
+            
+            result = (answer, chunks)
+            
+            # Cache result
+            if use_cache:
+                query_cache.set(cache_key, {
+                    'answer': answer,
+                    'sources': chunks
+                })
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in RAG pipeline: {e}")
+            error_msg = format_error_message(e, include_details=False)
+            return error_msg, []
+    
+    def _fallback_answer(self, chunks: List[Dict]) -> str:
+        """Generate fallback answer from chunks when LLM fails.
         
-        if not chunks:
-            return "No relevant complaints found for your query.", []
+        Args:
+            chunks: Retrieved chunks
+            
+        Returns:
+            Fallback answer text
+        """
+        products = set(chunk['product'] for chunk in chunks)
+        issues = [chunk['issue'] for chunk in chunks if chunk.get('issue')]
         
-        # Build prompt
-        context = self._build_context(chunks)
-        prompt = self._build_prompt(question, context)
+        answer_parts = [
+            f"Found {len(chunks)} relevant complaint(s) related to your query."
+        ]
         
-        # Generate answer
-        answer = self.llm.generate(prompt, temperature=temperature)
+        if products:
+            answer_parts.append(f"Products involved: {', '.join(products)}")
         
-        return answer.strip(), chunks
+        if issues:
+            unique_issues = list(set(issues))[:5]
+            answer_parts.append(f"Common issues: {', '.join(unique_issues)}")
+        
+        return " ".join(answer_parts)
     
     def retrieve_only(
         self,

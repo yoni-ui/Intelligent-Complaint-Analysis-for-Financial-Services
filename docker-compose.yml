@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  complaint-analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: complaint-analyzer
+    ports:
+      - "${APP_PORT:-7860}:7860"
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=7860
+      - APP_DEBUG=${APP_DEBUG:-False}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - DEFAULT_LLM_MODEL=${DEFAULT_LLM_MODEL:-mistral:7b-instruct}
+      - ENABLE_RATE_LIMITING=${ENABLE_RATE_LIMITING:-True}
+      - ENABLE_CACHE=${ENABLE_CACHE:-True}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/app/data:ro
+      - ./vector_store:/app/vector_store:ro
+      - ./logs:/app/logs
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - complaint-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-service
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - complaint-network
+
+volumes:
+  ollama-data:
+
+networks:
+  complaint-network:
+    driver: bridge

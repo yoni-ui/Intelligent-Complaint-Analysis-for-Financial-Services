@@ -6,10 +6,12 @@ This module provides a simple interface to call local LLMs via Ollama's HTTP API
 
 import requests
 from typing import Optional
+from src.config import OLLAMA_BASE_URL, DEFAULT_LLM_MODEL, LLM_TIMEOUT, LLM_MAX_TOKENS, LLM_TEMPERATURE
+from src.logger import logger
+from src.utils import retry_on_failure
 
-# Default Ollama configuration
-OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "mistral:7b-instruct"
+# Default Ollama configuration (fallback if config not loaded)
+DEFAULT_MODEL = DEFAULT_LLM_MODEL
 
 
 class OllamaClient:
@@ -25,19 +27,20 @@ class OllamaClient:
         self.model = model
         self.base_url = base_url
     
+    @retry_on_failure(max_retries=2)
     def generate(
         self,
         prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        temperature: float = None,
+        max_tokens: int = None,
         stream: bool = False
     ) -> str:
         """Generate text completion from prompt.
         
         Args:
             prompt: Input prompt
-            temperature: Sampling temperature (0-1)
-            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0-1), uses config default if None
+            max_tokens: Maximum tokens to generate, uses config default if None
             stream: Whether to stream response (not implemented yet)
             
         Returns:
@@ -45,37 +48,54 @@ class OllamaClient:
         """
         url = f"{self.base_url}/api/generate"
         
+        temp = temperature if temperature is not None else LLM_TEMPERATURE
+        max_toks = max_tokens if max_tokens is not None else LLM_MAX_TOKENS
+        
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens
+                "temperature": temp,
+                "num_predict": max_toks
             }
         }
         
+        logger.debug(f"Generating with model {self.model}, temperature={temp}, max_tokens={max_toks}")
+        
         try:
-            response = requests.post(url, json=payload, timeout=120)
+            response = requests.post(url, json=payload, timeout=LLM_TIMEOUT)
             response.raise_for_status()
             result = response.json()
-            return result.get("response", "")
-        except requests.exceptions.ConnectionError:
+            answer = result.get("response", "")
+            logger.debug(f"Generated {len(answer)} characters")
+            return answer
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error to Ollama at {self.base_url}: {e}")
             raise ConnectionError(
                 f"Could not connect to Ollama at {self.base_url}. "
                 "Make sure Ollama is running: `ollama serve`"
             )
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Ollama request timed out after {LLM_TIMEOUT}s")
             raise TimeoutError("Ollama request timed out. Try a shorter prompt or increase timeout.")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Ollama request error: {e}")
+            raise RuntimeError(f"Ollama request failed: {e}")
         except Exception as e:
+            logger.error(f"Unexpected error in Ollama generation: {e}")
             raise RuntimeError(f"Ollama error: {e}")
     
     def is_available(self) -> bool:
         """Check if Ollama server is available."""
         try:
             response = requests.get(f"{self.base_url}/api/tags", timeout=5)
-            return response.status_code == 200
-        except:
+            is_avail = response.status_code == 200
+            if not is_avail:
+                logger.warning(f"Ollama health check returned status {response.status_code}")
+            return is_avail
+        except Exception as e:
+            logger.warning(f"Ollama health check failed: {e}")
             return False
     
     def list_models(self) -> list:

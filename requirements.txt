@@ -1,20 +1,33 @@
-# Task 1: EDA & Preprocessing
+# Core dependencies
 pandas>=2.0.0
 numpy>=1.24.0
+
+# Visualization (optional, for notebooks)
 matplotlib>=3.7.0
 seaborn>=0.12.0
 
-# Task 2: Embeddings & Vector Store
+# Embeddings & Vector Store
 sentence-transformers>=2.2.0
 faiss-cpu>=1.7.0
 langchain-text-splitters>=0.0.1
 
-# Task 3: LLM (Ollama client)
+# LLM (Ollama client)
 requests>=2.31.0
 
-# Task 4: UI
+# UI
 gradio>=4.0.0
 
-# Utilities
+# Configuration & Environment
 python-dotenv>=1.0.0
+
+# Utilities
 tqdm>=4.65.0
+
+# Production dependencies
+# Logging (built-in, but ensure compatibility)
+# Caching (using built-in dict, no extra deps needed)
+# Health checks (using built-in modules)
+
+# Optional: For production monitoring (uncomment if needed)
+# prometheus-client>=0.18.0
+# psutil>=5.9.0
