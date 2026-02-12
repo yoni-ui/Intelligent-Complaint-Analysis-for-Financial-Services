@@ -49,7 +49,8 @@ MAX_TOP_K = int(os.getenv('MAX_TOP_K', '20'))
 
 # Application configuration
 APP_HOST = os.getenv('APP_HOST', '0.0.0.0')
-APP_PORT = int(os.getenv('APP_PORT', '7860'))
+# Use the platform-provided PORT if available (e.g., Render), else fall back to APP_PORT or 7860
+APP_PORT = int(os.getenv('PORT', os.getenv('APP_PORT', '7860')))
 APP_SHARE = os.getenv('APP_SHARE', 'False').lower() == 'true'
 APP_DEBUG = os.getenv('APP_DEBUG', 'False').lower() == 'true'
 APP_TITLE = os.getenv('APP_TITLE', 'CrediTrust Complaint Analyzer')

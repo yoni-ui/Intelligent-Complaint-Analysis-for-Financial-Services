@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: complaint-analyzer
+    env: docker
+    branch: main
+    dockerfilePath: Dockerfile
+    plan: starter
+    disk:
+      - mountPath: /app/vector_store
+        sizeGB: 10
+      - mountPath: /app/data
+        sizeGB: 5
+    envVars:
+      - key: APP_HOST
+        value: 0.0.0.0
+      - key: APP_DEBUG
+        value: "False"
+      - key: DEFAULT_LLM_MODEL
+        value: mistral:7b-instruct
+      - key: OLLAMA_BASE_URL
+        value: http://ollama:11434
