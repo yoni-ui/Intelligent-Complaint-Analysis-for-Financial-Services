@@ -12,7 +12,8 @@ A production-ready, local RAG (Retrieval-Augmented Generation) system to analyze
 - 🔍 **Fast semantic search** over complaint chunks using FAISS
 - 🤖 **Retrieval + generation pipeline** for grounded answers
 - 🎯 **Filter by product category** (credit cards, loans, accounts, transfers)
-- 🔐 **Local LLM inference** via Ollama for privacy and offline use
+- 🔐 **Multiple LLM providers**: Ollama (local) or Google Gemini (cloud)
+- ☁️ **Google Gemini API** support for cloud-based inference
 
 ## Repository Layout
 
@@ -50,8 +51,11 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your settings
 
-# Pull the local LLM model for Ollama
+# For Ollama (local LLM):
 ollama pull mistral:7b-instruct
+
+# OR for Google Gemini (cloud):
+# Set GOOGLE_API_KEY in .env file
 
 # Preprocess raw complaints (place complaints.csv into data/raw/ first)
 python src/preprocess.py
@@ -199,12 +203,27 @@ For detailed production deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.
 └── DEPLOYMENT.md        # Production deployment guide
 ```
 
+## LLM Providers
+
+The application supports two LLM providers:
+
+1. **Ollama** (Local, default): Requires Ollama installed and running locally
+   - Set `LLM_PROVIDER=ollama` in `.env`
+   - Requires: `ollama serve` running
+   - Models: Any Ollama model (e.g., `mistral:7b-instruct`)
+
+2. **Google Gemini** (Cloud): Uses Google's Gemini API
+   - Set `LLM_PROVIDER=google` in `.env`
+   - Requires: `GOOGLE_API_KEY` in `.env`
+   - Models: `gemini-pro`, `gemini-pro-vision`, etc.
+
 ## Configuration
 
 Configuration is managed through environment variables (see `.env.example`). Key settings include:
 
 - **Application**: Host, port, debug mode, title
-- **LLM**: Model selection, timeout, temperature
+- **LLM Provider**: Choose between Ollama or Google Gemini
+- **LLM Settings**: Model selection, timeout, temperature, API keys
 - **Security**: Rate limiting, query length limits
 - **Performance**: Caching, batch sizes, retrieval parameters
 - **Monitoring**: Logging levels, metrics collection

@@ -5,9 +5,9 @@ Health check endpoints and monitoring.
 import time
 from typing import Dict, Any
 from pathlib import Path
-from src.config import FAISS_INDEX_PATH, METADATA_PATH, OLLAMA_BASE_URL
+from src.config import FAISS_INDEX_PATH, METADATA_PATH, OLLAMA_BASE_URL, LLM_PROVIDER
 from src.logger import logger
-from src.llm.local_ollama import OllamaClient
+from src.llm.factory import get_llm_client
 from src.cache import query_cache
 
 
@@ -17,7 +17,11 @@ class HealthChecker:
     def __init__(self):
         """Initialize health checker."""
         self.start_time = time.time()
-        self.llm_client = OllamaClient()
+        try:
+            self.llm_client = get_llm_client()
+        except Exception as e:
+            logger.warning(f"Failed to initialize LLM client for health checks: {e}")
+            self.llm_client = None
     
     def check_vector_store(self) -> Dict[str, Any]:
         """Check vector store health.
@@ -58,28 +62,44 @@ class HealthChecker:
             Dictionary with health status
         """
         try:
-            is_available = self.llm_client.is_available()
-            
-            if not is_available:
+            if self.llm_client is None:
                 return {
                     'status': 'unhealthy',
                     'available': False,
-                    'error': 'Ollama service not responding'
+                    'error': 'LLM client not initialized'
+                }
+            
+            is_available = self.llm_client.is_available()
+            
+            if not is_available:
+                provider_name = LLM_PROVIDER.upper()
+                return {
+                    'status': 'unhealthy',
+                    'available': False,
+                    'provider': LLM_PROVIDER,
+                    'error': f'{provider_name} service not responding'
                 }
             
             models = self.llm_client.list_models()
             
-            return {
+            result = {
                 'status': 'healthy',
                 'available': True,
-                'base_url': OLLAMA_BASE_URL,
-                'model': self.llm_client.model,
+                'provider': LLM_PROVIDER,
+                'model': getattr(self.llm_client, 'model', 'unknown'),
                 'available_models': models
             }
+            
+            # Add provider-specific info
+            if LLM_PROVIDER.lower() == 'ollama':
+                result['base_url'] = OLLAMA_BASE_URL
+            
+            return result
         except Exception as e:
             logger.error(f"LLM health check failed: {e}")
             return {
                 'status': 'unhealthy',
+                'provider': LLM_PROVIDER,
                 'error': str(e)
             }
     

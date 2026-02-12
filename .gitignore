@@ -1,3 +1,37 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+.venv/
+venv/
+build/
+dist/
+eggs/
+*.egg-info/
+.pytest_cache/
+# Virtual environment
+/.venv
+
+# Environment files
+.env
+.env.local
+
+# Data and artifacts
+/data/
+/vector_store/
+/logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# Ollama data
+/ollama-data/
 # Python
 __pycache__/
 *.pyc

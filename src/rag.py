@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from sentence_transformers import SentenceTransformer
 
-from src.llm.local_ollama import OllamaClient, get_llm_client
+from src.llm.factory import get_llm_client
 from src.config import (
     FAISS_INDEX_PATH, METADATA_PATH, EMBEDDING_MODEL, DEFAULT_TOP_K,
     MAX_TOP_K, LLM_TEMPERATURE, LLM_MAX_TOKENS, LLM_TIMEOUT
